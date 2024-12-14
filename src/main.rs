@@ -4,7 +4,12 @@ mod graph;
 
 fn main() {
     // Specify the path to the dataset file
-    let file_path = "../finefoods.txt.gz";
+    let file_path = "../finefoods.txt";
+    println!("Current working directory: {:?}", std::env::current_dir().unwrap());
+
+
+
+
 
     // Load the graph from the dataset
     let graph = graph::read_graph_from_file(file_path);

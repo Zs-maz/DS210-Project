@@ -1,9 +1,7 @@
 use petgraph::graph::{Graph, NodeIndex};
-use flate2::read::GzDecoder;
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use rand::prelude::IteratorRandom;
 
 // Function to read and parse the dataset file into a graph
 pub fn read_graph_from_file(file_path: &str) -> Graph<String, ()> {
@@ -12,16 +10,16 @@ pub fn read_graph_from_file(file_path: &str) -> Graph<String, ()> {
     let mut current_user: Option<String> = None;
     let mut current_product: Option<String> = None;
 
-    // Open the compressed GZIP file
+    // Open the file
     let file = File::open(file_path).expect("Failed to open dataset file");
-    let decoder = GzDecoder::new(file);
-    let reader = BufReader::new(decoder);
+    let reader = BufReader::new(file);
 
-    for line in reader.lines() {
+    for line in reader.split(b'\n') {
         let line = line.expect("Failed to read line");
+        let line = String::from_utf8_lossy(&line).trim().to_string();
 
         // A blank line marks the end of a record
-        if line.trim().is_empty() {
+        if line.is_empty() {
             if let (Some(user), Some(product)) = (current_user.take(), current_product.take()) {
                 let user_node = *node_map.entry(user.clone()).or_insert_with(|| graph.add_node(user));
                 let product_node = *node_map.entry(product.clone()).or_insert_with(|| graph.add_node(product));
@@ -54,8 +52,14 @@ pub fn calculate_degree(graph: &Graph<String, ()>) -> HashMap<NodeIndex, f64> {
 
 // Function to calculate the degree centrality of each node
 pub fn calculate_degree_centrality(graph: &Graph<String, ()>) -> HashMap<NodeIndex, f64> {
-    let max_possible_degree = (graph.node_count() - 1) as f64;
     let mut degree_centrality = HashMap::new();
+
+    // Handle empty graph case
+    if graph.node_count() == 0 {
+        return degree_centrality;
+    }
+
+    let max_possible_degree = (graph.node_count() - 1) as f64;
 
     for node in graph.node_indices() {
         let degree = graph.neighbors(node).count() as f64;
@@ -66,16 +70,19 @@ pub fn calculate_degree_centrality(graph: &Graph<String, ()>) -> HashMap<NodeInd
 
 // Function to calculate the average distance between nodes using BFS sampling
 pub fn calculate_average_distance(graph: &Graph<String, ()>, size: usize) -> f64 {
-    let mut rng = rand::thread_rng();
+    use rand::thread_rng;
+    use rand::seq::SliceRandom;
+
+    let mut rng = thread_rng();
     let nodes: Vec<_> = graph.node_indices().collect();
-    let subset: Vec<_> = nodes.iter().choose_multiple(&mut rng, size).into_iter().cloned().collect();
+    let sample_nodes: Vec<_> = nodes.choose_multiple(&mut rng, size).cloned().collect();
 
     let mut total_distance = 0;
     let mut total_pairs = 0;
 
-    for &start_node in &subset {
+    for &start_node in &sample_nodes {
         let distances = bfs_distances(graph, start_node);
-        for (_end_node, distance) in distances {
+        for (_, distance) in distances {
             total_distance += distance;
             total_pairs += 1;
         }
@@ -89,35 +96,21 @@ pub fn calculate_average_distance(graph: &Graph<String, ()>, size: usize) -> f64
 }
 
 // Helper function: Perform BFS to calculate distances from a given source node
-pub fn bfs_distances(graph: &Graph<String, ()>, source: NodeIndex) -> HashMap<NodeIndex, usize> {
+pub fn bfs_distances(graph: &Graph<String, ()>, start: NodeIndex) -> HashMap<NodeIndex, usize> {
     let mut distances = HashMap::new();
     let mut queue = VecDeque::new();
 
-    queue.push_back((source, 0));
-    distances.insert(source, 0);
+    queue.push_back((start, 0));
+    distances.insert(start, 0);
 
     while let Some((current_node, current_distance)) = queue.pop_front() {
         for neighbor in graph.neighbors(current_node) {
             if !distances.contains_key(&neighbor) {
-                let new_distance = current_distance + 1;
-                queue.push_back((neighbor, new_distance));
-                distances.insert(neighbor, new_distance);
+                distances.insert(neighbor, current_distance + 1);
+                queue.push_back((neighbor, current_distance + 1));
             }
         }
     }
+
     distances
-}
-
-// Function to display top nodes by a given metric
-pub fn display_top_nodes(metric: &str, values: &HashMap<NodeIndex, f64>, top_count: usize) {
-    println!("Top {} Nodes by {}:", top_count, metric);
-
-    let mut sorted_nodes: Vec<_> = values.iter().collect();
-    sorted_nodes.sort_by(|(_, &a), (_, &b)| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal));
-
-    for (i, (node, &value)) in sorted_nodes.iter().take(top_count).enumerate() {
-        println!("{}. Node {}: {:.2}", i + 1, node.index(), value);
-    }
-
-    println!();
 }
